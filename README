@@ -1,0 +1,23 @@
+# TradeLens
+
+A full-stack trading analytics platform that imports MetaTrader 5 trades, analyses performance, and visualises trades on TradingView-style charts.
+
+## Tech Stack
+- Frontend: React, TypeScript, Tailwind, Lightweight Charts
+- Backend: FastAPI, PostgreSQL, SQLAlchemy
+- Data Source: MetaTrader 5
+
+## Project Structure
+- `/frontend` - React app
+- `/backend` - FastAPI API
+- `/docs` - architecture notes, roadmap, screenshots
+
+## Features
+- MT5 trade import
+- P&L analytics
+- risk-to-reward calculations
+- trade chart overlays
+- performance breakdowns
+
+## Running Locally
+Instructions here

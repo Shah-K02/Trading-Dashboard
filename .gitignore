@@ -1,0 +1,42 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+server_log.txt
+err.txt
+err2.txt
+err3.txt
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Vite
+frontend/dist/
+
+# Python test/cache
+.pytest_cache/
+.mypy_cache/
+
+# Alembic (don't ignore migrations — they should be in source control)
+
+# IDE
+.vscode/
+.idea/
+
+# Mac/Linux temp
+*.swp
