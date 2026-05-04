@@ -107,6 +107,10 @@ cd frontend && npm run dev
 
 Open **http://localhost:5173** and register your account.
 
+### 6. Deployment
+
+For deploying the application to a production environment (like Vercel and Render), please refer to our [Deployment Guide](DEPLOYMENT.md).
+
 ---
 
 ## 📁 Project Structure
