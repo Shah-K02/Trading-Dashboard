@@ -224,3 +224,11 @@ export const saveTagUpdates = async (
   const { data } = await api.patch(`/trades/${id}/tags`, tags);
   return data;
 };
+
+export const saveBulkTagUpdates = async (
+  tradeIds: string[],
+  tags: { strategy_tag?: string; setup_tag?: string; session?: string }
+): Promise<{ updated_count: number }> => {
+  const { data } = await api.patch('/trades/bulk-tags', { trade_ids: tradeIds, ...tags });
+  return data;
+};

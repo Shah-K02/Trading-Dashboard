@@ -49,7 +49,7 @@ Current status: **v0.3 in progress — filters, day-of-week analytics, multi-acc
 ### Trade Tagging (High Value)
 - [x] Add/edit `strategy_tag`, `setup_tag`, `session` directly from the trade detail page UI
 - [x] Filter trades calendar/table by tag, symbol, side, date range
-- [ ] Bulk-tag multiple trades from table view
+- [x] Bulk-tag multiple trades from table view
 
 ### Analytics Improvements
 - [x] Day-of-week performance breakdown (best/worst trading days)

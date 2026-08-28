@@ -14,7 +14,7 @@ from app.models.trade import Trade
 from app.models.symbol import Symbol
 from app.models.trade_chart_cache import TradeChartCache
 from app.models.user import User
-from app.schemas.trade import TradeDetailResponse, TradeListItem, JournalUpdateRequest
+from app.schemas.trade import TradeDetailResponse, TradeListItem, JournalUpdateRequest, BulkTagUpdateRequest, BulkTagUpdateResponse
 
 router = APIRouter()
 
@@ -94,6 +94,46 @@ def list_trades(
 
     trades = q.order_by(Trade.open_time.desc()).offset(offset).limit(limit).all()
     return [_trade_with_symbol(t, db) for t in trades]
+
+
+@router.patch("/bulk-tags", response_model=BulkTagUpdateResponse)
+def bulk_update_tags(
+    payload: BulkTagUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Apply strategy_tag/setup_tag/session to many trades at once. Only
+    fields actually present in the request body are touched — omitting a
+    field leaves it unchanged on every selected trade; passing "" clears it
+    (mirrors the single-trade PATCH /{trade_id}/tags semantics)."""
+    if not payload.trade_ids:
+        raise HTTPException(status_code=400, detail="No trades selected")
+
+    fields_set = payload.model_fields_set - {"trade_ids"}
+    if not fields_set:
+        raise HTTPException(status_code=400, detail="No tag fields provided")
+
+    VALID_SESSIONS = {"asia", "london", "new_york", "overlap", "other", ""}
+    if "session" in fields_set and payload.session and payload.session not in VALID_SESSIONS:
+        raise HTTPException(status_code=400, detail=f"Invalid session value: {payload.session}")
+
+    trades = db.query(Trade).join(Account).filter(
+        Trade.id.in_(payload.trade_ids), Account.user_id == current_user.id
+    ).all()
+
+    from datetime import datetime, timezone as tz
+    now = datetime.now(tz.utc)
+    for trade in trades:
+        if "strategy_tag" in fields_set:
+            trade.strategy_tag = payload.strategy_tag or None
+        if "setup_tag" in fields_set:
+            trade.setup_tag = payload.setup_tag or None
+        if "session" in fields_set:
+            trade.session = payload.session or None
+        trade.updated_at = now
+
+    db.commit()
+    return BulkTagUpdateResponse(updated_count=len(trades))
 
 
 @router.get("/{trade_id}", response_model=TradeDetailResponse)

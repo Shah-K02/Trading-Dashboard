@@ -2,10 +2,17 @@ import { useNavigate } from "react-router-dom";
 import type { TradeListItem } from "../../lib/api";
 import { formatCurrency, formatDateTime } from "../../lib/format";
 
-type Props = { trades: TradeListItem[] };
+type Props = {
+  trades: TradeListItem[];
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onToggleSelectAll?: () => void;
+};
 
-export function TradesTable({ trades }: Props) {
+export function TradesTable({ trades, selectedIds, onToggleSelect, onToggleSelectAll }: Props) {
   const navigate = useNavigate();
+  const selectable = Boolean(onToggleSelect);
+  const allSelected = selectable && trades.length > 0 && trades.every(t => selectedIds?.has(t.id));
 
   return (
     <>
@@ -20,6 +27,15 @@ export function TradesTable({ trades }: Props) {
               className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3.5 cursor-pointer hover:bg-slate-800/60 transition-colors"
             >
               <div className="flex items-center gap-3">
+                {selectable && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds?.has(trade.id) ?? false}
+                    onClick={e => e.stopPropagation()}
+                    onChange={() => onToggleSelect?.(trade.id)}
+                    className="h-4 w-4 shrink-0 rounded border-slate-600 bg-slate-800 accent-blue-600"
+                  />
+                )}
                 <span className="text-xs text-sky-400 font-mono w-6 shrink-0">#{i + 1}</span>
                 <div>
                   <div className="flex items-center gap-2 mb-0.5">
@@ -52,6 +68,16 @@ export function TradesTable({ trades }: Props) {
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-800/60">
               <tr>
+                {selectable && (
+                  <th className="px-4 py-3 w-8">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={() => onToggleSelectAll?.()}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-800 accent-blue-600"
+                    />
+                  </th>
+                )}
                 {['#', 'Symbol', 'Side', 'Open Time', 'Close Time', 'Entry', 'Exit', 'Lot', 'Net P&L', 'RR', 'Strategy'].map(h => (
                   <th key={h} className="px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
@@ -66,6 +92,16 @@ export function TradesTable({ trades }: Props) {
                     onClick={() => navigate(`/trades/${trade.id}`)}
                     className="border-t border-slate-800 hover:bg-slate-800/60 transition-colors cursor-pointer"
                   >
+                    {selectable && (
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds?.has(trade.id) ?? false}
+                          onChange={() => onToggleSelect?.(trade.id)}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-800 accent-blue-600"
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-3 font-mono text-xs text-sky-400">#{i + 1}</td>
                     <td className="px-4 py-3">
                       <span className="font-mono text-sm font-semibold text-emerald-400">

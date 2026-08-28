@@ -41,3 +41,14 @@ class TradeDetailResponse(TradeListItem):
 
 class JournalUpdateRequest(BaseModel):
     note_summary: str | None = None
+
+
+class BulkTagUpdateRequest(BaseModel):
+    trade_ids: list[UUID]
+    strategy_tag: str | None = None
+    setup_tag: str | None = None
+    session: str | None = None
+
+
+class BulkTagUpdateResponse(BaseModel):
+    updated_count: int

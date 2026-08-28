@@ -6,6 +6,13 @@ All changes listed in reverse chronological order (newest first).
 
 ## 2026-08-28
 
+### feat(trades): bulk-tag multiple trades from table view
+- **Backend**: new `PATCH /api/trades/bulk-tags` — takes `trade_ids` + any of `strategy_tag`/`setup_tag`/`session`; only fields actually present in the request body are applied (uses `model_fields_set`), so omitting a field leaves it untouched on every selected trade while passing `""` explicitly clears it — same semantics as the existing single-trade `PATCH /{trade_id}/tags`, extended to a batch; scoped to the current user's own trades via a join on `accounts.user_id`
+- **Frontend**: `TradesTable` gains per-row checkboxes (desktop + mobile) and a header select-all checkbox; new `BulkTagBar` component (reuses `TagInput`/`SESSIONS`/suggestion lists exported from `TagEditor`) shows a "N trades selected" toolbar above the table with session buttons, strategy/setup autocomplete inputs, and an "Apply to N trades" button that's only enabled once at least one field has been touched
+- Verified end-to-end in the browser: select multiple rows, set session + strategy, apply, confirm both rows update in place and selection clears
+
+---
+
 ### feat(sync): hosted trade-detail chart via agent-pushed OHLC cache
 - **Problem**: `GET /api/trades/{id}/chart` called MT5 directly, same limitation as the trade-history sync fixed earlier today — broken for hosted backends
 - **Backend**: new `trade_chart_cache` table (migration `80c96a4c27aa`) caching OHLC bars per `(trade_id, timeframe)`; new `POST /api/import/mt5/charts` endpoint (`ChartIngestRequest`/`ChartIngestResponse` in `app/schemas/sync.py`) upserts pushed bars, scoped to the authenticated user's own trades

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { saveTagUpdates } from '../../lib/api';
 
-const SESSIONS = [
+export const SESSIONS = [
   { value: '',         label: 'None'     },
   { value: 'asia',     label: '🌏 Asia'   },
   { value: 'london',   label: '🇬🇧 London' },
@@ -12,11 +12,11 @@ const SESSIONS = [
 ];
 
 // Common strategy / setup presets you can extend over time
-const STRATEGY_SUGGESTIONS = [
+export const STRATEGY_SUGGESTIONS = [
   'Breakout', 'Pullback', 'Trend Follow', 'Reversal', 'Range', 'News Play',
   'VWAP Reclaim', 'Opening Range', 'ICT Breaker', 'Supply & Demand', 'SMC',
 ];
-const SETUP_SUGGESTIONS = [
+export const SETUP_SUGGESTIONS = [
   'BOS Retest', 'CHoCH', 'FVG Fill', 'OB Tap', 'EQH/EQL', 'Liquidity Sweep',
   'London Kill Zone', 'NY Open', 'Double Top', 'Triangle Break', 'Head & Shoulders',
 ];
@@ -28,7 +28,7 @@ interface Props {
   initialSession: string | null;
 }
 
-function TagInput({
+export function TagInput({
   label, value, onChange, suggestions, placeholder, color,
 }: {
   label: string; value: string; onChange: (v: string) => void;
