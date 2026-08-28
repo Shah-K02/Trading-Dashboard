@@ -1,4 +1,8 @@
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+except ImportError:  # pragma: no cover
+    mt5 = None
+
 from datetime import datetime, timezone, timedelta
 import uuid
 import logging
@@ -9,31 +13,27 @@ from app.models.symbol import Symbol
 
 logger = logging.getLogger(__name__)
 
-def sync_mt5_trades(db: Session, user_id: uuid.UUID, from_date: datetime | None = None, to_date: datetime | None = None) -> int:
-    """Connects to MT5, fetches trade history, and saves to DB."""
-    if not mt5.initialize():
-        error_code = mt5.last_error()
-        logger.error(f"MT5 initialize() failed, error code = {error_code}")
-        raise Exception(f"Failed to initialize MT5. Ensure MT5 is running. Error: {error_code}")
+# Mirrors MetaTrader5's own enum values so this module can process deals
+# without importing the (Windows-only, no Linux wheel) MetaTrader5 package.
+DEAL_ENTRY_IN = 0
+DEAL_ENTRY_OUT = 1
+DEAL_ENTRY_OUT_BY = 3
+DEAL_TYPE_BUY = 0
 
-    # Ensure we are connected
-    account_info = mt5.account_info()
-    if account_info is None:
-        raise Exception("Failed to get MT5 account info. Are you logged in?")
 
-    # 1. Upsert Account
-    account_number = str(account_info.login)
+def _upsert_account(db: Session, user_id: uuid.UUID, account_info: dict) -> Account:
+    account_number = str(account_info["login"])
     account = db.query(Account).filter(Account.account_number == account_number).first()
     if not account:
         account = Account(
             id=uuid.uuid4(),
             user_id=user_id,
-            broker_name=account_info.company,
-            account_name=account_info.name,
+            broker_name=account_info["company"],
+            account_name=account_info["name"],
             account_number=account_number,
-            server_name=account_info.server,
-            base_currency=account_info.currency,
-            leverage=str(account_info.leverage),
+            server_name=account_info["server"],
+            base_currency=account_info["currency"],
+            leverage=str(account_info["leverage"]),
         )
         db.add(account)
         db.commit()
@@ -41,28 +41,22 @@ def sync_mt5_trades(db: Session, user_id: uuid.UUID, from_date: datetime | None 
         # Claim legacy account that was synced before auth was added
         account.user_id = user_id
         db.commit()
-    
-    # Set default date range if not provided (e.g., last 30 days)
-    if not to_date:
-        to_date = datetime.now(timezone.utc)
-    if not from_date:
-        from_date = to_date - timedelta(days=365) # Last 1 year
+    return account
 
-    # 2. Fetch Deals (Trades closed)
-    deals = mt5.history_deals_get(from_date, to_date)
-    if deals is None:
-        mt5.shutdown()
-        return 0
+
+def process_synced_deals(db: Session, user_id: uuid.UUID, account_info: dict, deals: list[dict]) -> int:
+    """Given plain-dict account info + deal records (from either a local mt5.*
+    call or the sync agent's JSON payload), upsert Account/Symbol/Trade rows
+    and stamp Account.last_synced_at. Returns count of newly created trades.
+    """
+    account = _upsert_account(db, user_id, account_info)
 
     new_trades_count = 0
 
     # Group deals by position ID
-    position_deals = {}
+    position_deals: dict[int, list[dict]] = {}
     for deal in deals:
-        pos_id = deal.position_id
-        if pos_id not in position_deals:
-            position_deals[pos_id] = []
-        position_deals[pos_id].append(deal)
+        position_deals.setdefault(deal["position_id"], []).append(deal)
 
     for pos_id, pos_deals in position_deals.items():
         # Check if trade already exists
@@ -72,44 +66,44 @@ def sync_mt5_trades(db: Session, user_id: uuid.UUID, from_date: datetime | None 
         ).first()
 
         if trade:
-            continue # Trade already synced (assuming it's closed, we could update if partial)
+            continue  # Trade already synced (assuming it's closed, we could update if partial)
 
-        # Basic filtering to reconstruct a trade. 
+        # Basic filtering to reconstruct a trade.
         # MT5 positions have entry deal(s) and exit deal(s).
-        entry_deals = [d for d in pos_deals if d.entry == mt5.DEAL_ENTRY_IN]
-        exit_deals = [d for d in pos_deals if d.entry in [mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_BY]]
+        entry_deals = [d for d in pos_deals if d["entry"] == DEAL_ENTRY_IN]
+        exit_deals = [d for d in pos_deals if d["entry"] in (DEAL_ENTRY_OUT, DEAL_ENTRY_OUT_BY)]
 
         if not entry_deals or not exit_deals:
-            continue # Incomplete trade (still open or missing data)
+            continue  # Incomplete trade (still open or missing data)
 
-        symbol_name = entry_deals[0].symbol
-        
+        symbol_name = entry_deals[0]["symbol"]
+
         # Upsert Symbol
         symbol = db.query(Symbol).filter(Symbol.symbol == symbol_name).first()
         if not symbol:
             symbol = Symbol(
                 id=uuid.uuid4(),
                 symbol=symbol_name,
-                asset_class="other" # Simplified
+                asset_class="other"  # Simplified
             )
             db.add(symbol)
             db.commit()
 
         # Calculate metrics
-        entry_price = sum(d.price * d.volume for d in entry_deals) / sum(d.volume for d in entry_deals)
-        exit_price = sum(d.price * d.volume for d in exit_deals) / sum(d.volume for d in exit_deals)
-        total_volume = sum(d.volume for d in entry_deals)
-        
-        gross_pnl = sum(d.profit for d in exit_deals)
-        commission = sum(d.commission for d in pos_deals)
-        swap = sum(d.swap for d in pos_deals)
-        fee = sum(d.fee for d in pos_deals)
+        entry_price = sum(d["price"] * d["volume"] for d in entry_deals) / sum(d["volume"] for d in entry_deals)
+        exit_price = sum(d["price"] * d["volume"] for d in exit_deals) / sum(d["volume"] for d in exit_deals)
+        total_volume = sum(d["volume"] for d in entry_deals)
+
+        gross_pnl = sum(d["profit"] for d in exit_deals)
+        commission = sum(d["commission"] for d in pos_deals)
+        swap = sum(d["swap"] for d in pos_deals)
+        fee = sum(d["fee"] for d in pos_deals)
         net_pnl = gross_pnl + commission + swap + fee
 
-        side = "buy" if entry_deals[0].type == mt5.DEAL_TYPE_BUY else "sell"
-        
-        open_time = datetime.fromtimestamp(entry_deals[0].time, tz=timezone.utc)
-        close_time = datetime.fromtimestamp(exit_deals[-1].time, tz=timezone.utc)
+        side = "buy" if entry_deals[0]["type"] == DEAL_TYPE_BUY else "sell"
+
+        open_time = datetime.fromtimestamp(entry_deals[0]["time"], tz=timezone.utc)
+        close_time = datetime.fromtimestamp(exit_deals[-1]["time"], tz=timezone.utc)
 
         new_trade = Trade(
             id=uuid.uuid4(),
@@ -133,7 +127,74 @@ def sync_mt5_trades(db: Session, user_id: uuid.UUID, from_date: datetime | None 
         )
         db.add(new_trade)
         new_trades_count += 1
-    
+
+    account.last_synced_at = datetime.now(timezone.utc)
     db.commit()
-    mt5.shutdown()
     return new_trades_count
+
+
+def sync_mt5_trades(db: Session, user_id: uuid.UUID, from_date: datetime | None = None, to_date: datetime | None = None) -> int:
+    """Local-dev-only path: connects to a locally-running MT5 terminal, fetches
+    trade history, and saves to DB. Only works when this backend runs on the
+    same machine as an MT5 terminal (the MetaTrader5 package is Windows-only
+    IPC, not a network protocol) — hosted deployments should use the sync
+    agent + POST /api/import/mt5/ingest instead.
+    """
+    if mt5 is None:
+        raise RuntimeError(
+            "MetaTrader5 package is not installed on this server. This endpoint "
+            "only works when the backend runs on the same Windows machine as an "
+            "MT5 terminal. Hosted deployments should use the local sync agent "
+            "instead (POST /api/import/mt5/ingest)."
+        )
+
+    if not mt5.initialize():
+        error_code = mt5.last_error()
+        logger.error(f"MT5 initialize() failed, error code = {error_code}")
+        raise Exception(f"Failed to initialize MT5. Ensure MT5 is running. Error: {error_code}")
+
+    # Ensure we are connected
+    account_info = mt5.account_info()
+    if account_info is None:
+        mt5.shutdown()
+        raise Exception("Failed to get MT5 account info. Are you logged in?")
+
+    # Set default date range if not provided (e.g., last 30 days)
+    if not to_date:
+        to_date = datetime.now(timezone.utc)
+    if not from_date:
+        from_date = to_date - timedelta(days=365)  # Last 1 year
+
+    # Fetch Deals (Trades closed)
+    deals = mt5.history_deals_get(from_date, to_date)
+    if deals is None:
+        mt5.shutdown()
+        return 0
+
+    account_dict = {
+        "login": account_info.login,
+        "company": account_info.company,
+        "name": account_info.name,
+        "server": account_info.server,
+        "currency": account_info.currency,
+        "leverage": account_info.leverage,
+    }
+    deal_dicts = [{
+        "position_id": d.position_id,
+        "order_id": d.order,
+        "deal_id": d.ticket,
+        "entry": d.entry,
+        "type": d.type,
+        "price": d.price,
+        "volume": d.volume,
+        "profit": d.profit,
+        "commission": d.commission,
+        "swap": d.swap,
+        "fee": d.fee,
+        "time": d.time,
+        "symbol": d.symbol,
+    } for d in deals]
+
+    count = process_synced_deals(db, user_id, account_dict, deal_dicts)
+    mt5.shutdown()
+    return count

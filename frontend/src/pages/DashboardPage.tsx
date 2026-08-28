@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchAnalyticsSummary, fetchEquityCurve, fetchMonthlyStats, fetchSymbolBreakdown, importMT5Trades } from "../lib/api";
-import { formatCurrency, formatPercent } from "../lib/format";
+import { formatCurrency, formatPercent, formatRelativeTime } from "../lib/format";
 import { SummaryCard } from "../components/dashboard/SummaryCard";
 import { MonthlyStatsTable } from "../components/dashboard/MonthlyStatsTable";
 import { EquityChart } from "../components/charts/EquityChart";
@@ -33,9 +34,12 @@ export function DashboardPage() {
     queryFn: () => fetchSymbolBreakdown(accountId),
   });
 
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
   const syncMutation = useMutation({
     mutationFn: importMT5Trades,
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setSyncMessage(`Synced — ${data?.new_trades_count ?? 0} new trade(s).`);
       // Reload the active account (creates it if it didn't exist yet)
       loadActiveAccount();
       // Invalidate all account-related queries so the switcher dropdown refreshes
@@ -63,17 +67,33 @@ export function DashboardPage() {
           <h2 className="text-xl font-bold sm:text-2xl">Dashboard</h2>
           <p className="mt-0.5 text-slate-400 text-sm">Your complete trading performance overview.</p>
         </div>
-        <button
-          onClick={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending}
-          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors shadow-lg shadow-emerald-900/30 sm:px-5 sm:py-2.5"
-        >
-          {syncMutation.isPending ? (
-            <><span className="animate-spin text-base">↻</span><span className="hidden sm:inline">Syncing...</span></>
-          ) : (
-            <><span className="text-base">⟳</span><span className="hidden sm:inline">Sync MT5</span></>
-          )}
-        </button>
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              className="flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors shadow-lg shadow-emerald-900/30 sm:px-5 sm:py-2.5"
+            >
+              {syncMutation.isPending ? (
+                <><span className="animate-spin text-base">↻</span><span className="hidden sm:inline">Syncing...</span></>
+              ) : (
+                <><span className="text-base">⟳</span><span className="hidden sm:inline">Sync MT5</span></>
+              )}
+            </button>
+            <details className="relative">
+              <summary className="list-none cursor-pointer text-slate-400 hover:text-slate-200 text-base leading-none select-none">ⓘ</summary>
+              <div className="absolute right-0 z-10 mt-2 w-64 rounded-lg border border-slate-700 bg-slate-800 p-3 text-xs text-slate-300 shadow-xl">
+                Running TradeLens locally with MT5 on this PC? Click "Sync MT5" above.
+                Using the hosted version? Download and run the TradeLens Sync Agent on
+                the PC where your MT5 terminal lives — see <code>agent/README.md</code> in the repo.
+              </div>
+            </details>
+          </div>
+          <span className="text-xs text-slate-500">
+            Last synced: {formatRelativeTime(activeAccount?.last_synced_at ?? null)}
+          </span>
+          {syncMessage && <span className="text-xs text-emerald-400">{syncMessage}</span>}
+        </div>
       </div>
 
       {isLoading && <p className="text-slate-400 text-sm">Loading data…</p>}

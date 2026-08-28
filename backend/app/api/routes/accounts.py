@@ -20,6 +20,7 @@ def _account_dict(a: Account) -> dict:
         "base_currency": a.base_currency,
         "leverage": a.leverage,
         "is_active": a.is_active,
+        "last_synced_at": a.last_synced_at.isoformat() if a.last_synced_at else None,
     }
 
 
