@@ -70,8 +70,10 @@ Current status: **v0.3 in progress — filters, day-of-week analytics, multi-acc
 - [ ] Export journal entry as PDF
 
 ### Import / Sync
+- [x] Local sync agent for hosted deployments (`agent/tradelens_agent.py` → `POST /api/import/mt5/ingest`), since hosted backends can't reach a user's local MT5 terminal
+- [ ] Trade-detail candlestick chart working against a hosted backend (currently local-MT5-only, same root cause as above — needs the agent to also serve/cache OHLC data, or a hosted market-data source)
 - [ ] Import from CSV (MT4, cTrader, Tradovate)
-- [ ] Scheduled auto-sync (background task every N minutes)
+- [ ] Scheduled auto-sync (background task every N minutes) — agent currently supports client-side `--watch`, not server-driven
 - [ ] Open trade tracking with real-time P&L
 
 ---

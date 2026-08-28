@@ -4,6 +4,21 @@ All changes listed in reverse chronological order (newest first).
 
 ---
 
+## 2026-08-28
+
+### feat(sync): local MT5 sync agent for hosted deployments
+- **Problem**: `MetaTrader5` is Windows-only with no Linux wheel and only talks to a terminal on the same machine — a hosted backend (e.g. Render) can never reach a user's MT5 terminal directly
+- **New**: standalone `agent/tradelens_agent.py` — run on the PC where the MT5 terminal lives; logs into TradeLens once (JWT cached at `%USERPROFILE%\.tradelens\config.json`, password never stored), reads closed deal history, pushes it to the backend
+- Supports `--watch MINUTES` for periodic re-sync, or Windows Task Scheduler for unattended runs
+- **Backend**: new `POST /api/import/mt5/ingest` endpoint (`app/api/routes/imports.py`) accepts the agent's JSON payload (`IngestRequest`/`IngestResponse` in new `app/schemas/sync.py`)
+- Refactored `mt5_service.py`: extracted `process_synced_deals(db, user_id, account_dict, deal_dicts)` — package-agnostic trade-reconstruction logic shared by both the new ingest route and the existing local-dev `sync_mt5_trades` path
+- `mt5` import in `mt5_service.py` now defensive (`try/except ImportError`) so the backend doesn't crash on hosts without the package; `MetaTrader5`/`numpy` removed from `backend/requirements.txt` accordingly
+- New `Account.last_synced_at` column (migration `b2c3d4e5f6a7`), returned by `GET /api/accounts`
+- **Frontend**: Dashboard shows "Last synced: Xm/h/d ago" (`formatRelativeTime` in `format.ts`), a post-sync success message, and an ⓘ tooltip pointing hosted users to the agent
+- **Known gap**: trade-detail candlestick chart (`GET /api/trades/{id}/chart`) still calls MT5 directly and doesn't work against a hosted backend — separate follow-up
+
+---
+
 ## 2026-03-25
 
 ### feat(charting): chart timeframe switcher on trade detail
