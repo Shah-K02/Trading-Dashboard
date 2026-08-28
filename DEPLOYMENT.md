@@ -56,6 +56,12 @@ Make sure your project is pushed to a GitHub repository.
    - `SECRET_KEY`: A strong random string (generate one via `python -c "import secrets; print(secrets.token_hex(32))"`).
    - `APP_DEBUG`: `false`
    - `ALLOWED_ORIGINS_STR`: The URL of your future Vercel frontend (e.g., `https://tradelens.vercel.app`), or `*` temporarily if you haven't deployed the frontend yet.
+   - `PYTHON_VERSION`: `3.11.9` — **required**. Without this, Render defaults to
+     the newest Python it supports, which is often too new for `pydantic-core`
+     to have a prebuilt wheel for yet; pip then tries to compile it from Rust
+     source and fails in Render's build sandbox with a `Read-only file system`
+     error from `cargo`/`maturin`. Pinning to 3.11.x (matching local dev)
+     avoids this.
 6. Click **Create Web Service**. Render will now build and deploy your API. Note the URL of your deployed backend (e.g., `https://tradelens-backend.onrender.com`).
 
 ---

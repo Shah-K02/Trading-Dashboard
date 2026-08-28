@@ -23,3 +23,5 @@ services:
         value: "false"
       - key: APP_ENV
         value: production
+      - key: PYTHON_VERSION
+        value: 3.11.9
