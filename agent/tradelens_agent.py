@@ -26,6 +26,18 @@ except ImportError:
 
 CONFIG_PATH = Path.home() / ".tradelens" / "config.json"
 
+# Mirrors the backend's own per-timeframe lookback window
+# (backend/app/api/routes/trades.py _WINDOW) so cached chart bars cover the
+# same range the trade-detail page requests.
+CHART_TIMEFRAMES = {
+    "M1":  ("TIMEFRAME_M1", 2 * 3600),
+    "M5":  ("TIMEFRAME_M5", 8 * 3600),
+    "M15": ("TIMEFRAME_M15", 12 * 3600),
+    "H1":  ("TIMEFRAME_H1", 4 * 86400),
+    "H4":  ("TIMEFRAME_H4", 16 * 86400),
+    "D1":  ("TIMEFRAME_D1", 60 * 86400),
+}
+
 
 def load_config() -> dict:
     if CONFIG_PATH.exists():
@@ -108,6 +120,64 @@ def ingest(base_url: str, token: str, account_payload: dict, deal_payloads: list
     )
 
 
+def fetch_chart_bars(symbol: str, open_time: int, close_time: int) -> list[dict]:
+    """Fetch OHLC bars for every chart timeframe around a trade's open/close
+    time, so the hosted backend can serve the candlestick chart without
+    reaching MT5 itself. Returns [] entries are skipped by the caller."""
+    from datetime import datetime, timezone, timedelta
+
+    charts = []
+    for tf_name, (tf_attr, window_secs) in CHART_TIMEFRAMES.items():
+        tf_const = getattr(mt5, tf_attr)
+        window = timedelta(seconds=window_secs)
+        from_dt = datetime.fromtimestamp(open_time, tz=timezone.utc) - window
+        to_dt = datetime.fromtimestamp(close_time, tz=timezone.utc) + window
+        rates = mt5.copy_rates_range(symbol, tf_const, from_dt, to_dt)
+        if rates is None or len(rates) == 0:
+            continue
+        bars = [{
+            "time": int(r["time"]), "open": float(r["open"]), "high": float(r["high"]),
+            "low": float(r["low"]), "close": float(r["close"]),
+        } for r in rates]
+        charts.append({"timeframe": tf_name, "bars": bars})
+    return charts
+
+
+def push_chart_data(base_url: str, token: str, new_trades: list) -> None:
+    """For each trade the backend just created, fetch and push chart bars.
+    Best-effort: chart data isn't critical, so failures here don't fail the sync."""
+    if mt5 is None or not new_trades:
+        return
+
+    if not mt5.initialize():
+        print(f"Chart fetch skipped: could not reinitialize MT5 ({mt5.last_error()})", file=sys.stderr)
+        return
+
+    try:
+        charts_payload = []
+        for t in new_trades:
+            for chart in fetch_chart_bars(t["symbol"], t["open_time"], t["close_time"]):
+                charts_payload.append({
+                    "trade_id": t["trade_id"],
+                    "timeframe": chart["timeframe"],
+                    "bars": chart["bars"],
+                })
+    finally:
+        mt5.shutdown()
+
+    if not charts_payload:
+        return
+
+    resp = requests.post(
+        f"{base_url}/import/mt5/charts",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"charts": charts_payload},
+        timeout=120,
+    )
+    if resp.status_code != 200:
+        print(f"Chart push failed ({resp.status_code}): {resp.text}", file=sys.stderr)
+
+
 def run_once(config: dict, from_days: int) -> dict:
     base_url = config["base_url"]
     account_payload, deal_payloads = fetch_deals(from_days)
@@ -123,7 +193,9 @@ def run_once(config: dict, from_days: int) -> dict:
     if resp.status_code != 200:
         raise RuntimeError(f"Ingest failed ({resp.status_code}): {resp.text}")
 
-    return resp.json()
+    result = resp.json()
+    push_chart_data(base_url, config["token"], result.get("new_trades", []))
+    return result
 
 
 def main():

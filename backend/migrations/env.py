@@ -13,10 +13,11 @@ from app.core.config import settings
 from app.db.session import Base  # noqa: F401
 
 # Import all models so their tables are registered on Base.metadata
-import app.models.user      # noqa: F401
-import app.models.account   # noqa: F401
-import app.models.trade     # noqa: F401
-import app.models.symbol    # noqa: F401
+import app.models.user               # noqa: F401
+import app.models.account            # noqa: F401
+import app.models.trade              # noqa: F401
+import app.models.symbol             # noqa: F401
+import app.models.trade_chart_cache  # noqa: F401
 
 alembic_config = context.config
 alembic_config.set_main_option("sqlalchemy.url", settings.database_url)

@@ -6,6 +6,18 @@ All changes listed in reverse chronological order (newest first).
 
 ## 2026-08-28
 
+### feat(sync): hosted trade-detail chart via agent-pushed OHLC cache
+- **Problem**: `GET /api/trades/{id}/chart` called MT5 directly, same limitation as the trade-history sync fixed earlier today — broken for hosted backends
+- **Backend**: new `trade_chart_cache` table (migration `80c96a4c27aa`) caching OHLC bars per `(trade_id, timeframe)`; new `POST /api/import/mt5/charts` endpoint (`ChartIngestRequest`/`ChartIngestResponse` in `app/schemas/sync.py`) upserts pushed bars, scoped to the authenticated user's own trades
+- `IngestResponse` now includes `new_trades: [{trade_id, symbol, open_time, close_time}]` so the agent knows which trades need chart data without re-deriving position grouping itself
+- `process_synced_deals()` in `mt5_service.py` returns `(count, new_trades_info)` instead of just a count
+- `GET /trades/{id}/chart` now checks the cache first and only falls back to a live MT5 call (local dev) on a cache miss; a missing `MetaTrader5` package now returns a clear 503 instead of a raw import-error 500
+- **Agent**: after each ingest, fetches OHLC bars for all six chart timeframes (M1–D1, same lookback windows as the backend) for every newly-created trade and pushes them via the new endpoint — best-effort, doesn't fail the sync if it errors
+- **Frontend**: `TradeDetailPage` shows the backend's error detail (e.g. "run the agent to sync it") instead of a blank chart when chart data isn't available yet
+- **Known gap**: only trades synced *after* this change get cached chart data — trades already in the DB before upgrading the agent won't be backfilled
+
+---
+
 ### feat(sync): local MT5 sync agent for hosted deployments
 - **Problem**: `MetaTrader5` is Windows-only with no Linux wheel and only talks to a terminal on the same machine — a hosted backend (e.g. Render) can never reach a user's MT5 terminal directly
 - **New**: standalone `agent/tradelens_agent.py` — run on the PC where the MT5 terminal lives; logs into TradeLens once (JWT cached at `%USERPROFILE%\.tradelens\config.json`, password never stored), reads closed deal history, pushes it to the backend

@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models.account import Account
 from app.models.trade import Trade
 from app.models.symbol import Symbol
+from app.models.trade_chart_cache import TradeChartCache
 from app.models.user import User
 from app.schemas.trade import TradeDetailResponse, TradeListItem, JournalUpdateRequest
 
@@ -261,9 +262,36 @@ def get_trade_chart(
     window = _WINDOW.get(timeframe.upper(), timedelta(hours=12))
     from_dt = open_time - window
     to_dt = close_time + window
+    tf_upper = timeframe.upper()
+
+    # Prefer bars pushed by the local sync agent (see agent/tradelens_agent.py) —
+    # works regardless of whether this backend can reach MT5 directly.
+    cached = db.query(TradeChartCache).filter(
+        TradeChartCache.trade_id == trade_id, TradeChartCache.timeframe == tf_upper
+    ).first()
+    if cached:
+        return {
+            "bars": cached.bars,
+            "entry_price": float(trade.entry_price),
+            "exit_price": float(trade.exit_price) if trade.exit_price else None,
+            "stop_loss": float(trade.stop_loss) if trade.stop_loss else None,
+            "take_profit": float(trade.take_profit) if trade.take_profit else None,
+            "open_time": int(open_time.timestamp()),
+            "close_time": int(close_time.timestamp()),
+            "side": trade.side,
+            "timeframe": tf_upper,
+        }
 
     try:
-        import MetaTrader5 as mt5
+        try:
+            import MetaTrader5 as mt5
+        except ImportError:
+            raise HTTPException(
+                status_code=503,
+                detail="No chart data available. This backend can't reach MT5 directly "
+                       "and the local sync agent hasn't pushed chart bars for this trade yet — "
+                       "run the agent (see agent/README.md) to sync it.",
+            )
         if not mt5.initialize():
             raise HTTPException(status_code=503, detail="MT5 unavailable")
 

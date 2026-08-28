@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 from pydantic import BaseModel
 
 
@@ -32,7 +33,40 @@ class IngestRequest(BaseModel):
     deals: list[DealPayload]
 
 
+class NewTradeInfo(BaseModel):
+    """Enough info for the sync agent to fetch OHLC chart bars for a trade it
+    just created, without re-deriving the entry/exit-deal grouping itself."""
+    trade_id: UUID
+    symbol: str
+    open_time: int   # unix epoch seconds
+    close_time: int  # unix epoch seconds
+
+
 class IngestResponse(BaseModel):
     message: str
     new_trades_count: int
     last_synced_at: datetime
+    new_trades: list[NewTradeInfo] = []
+
+
+class ChartBar(BaseModel):
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+class ChartPayload(BaseModel):
+    trade_id: UUID
+    timeframe: str
+    bars: list[ChartBar]
+
+
+class ChartIngestRequest(BaseModel):
+    charts: list[ChartPayload]
+
+
+class ChartIngestResponse(BaseModel):
+    message: str
+    stored_count: int

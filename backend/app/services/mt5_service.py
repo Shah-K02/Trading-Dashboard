@@ -44,14 +44,17 @@ def _upsert_account(db: Session, user_id: uuid.UUID, account_info: dict) -> Acco
     return account
 
 
-def process_synced_deals(db: Session, user_id: uuid.UUID, account_info: dict, deals: list[dict]) -> int:
+def process_synced_deals(db: Session, user_id: uuid.UUID, account_info: dict, deals: list[dict]) -> tuple[int, list[dict]]:
     """Given plain-dict account info + deal records (from either a local mt5.*
     call or the sync agent's JSON payload), upsert Account/Symbol/Trade rows
-    and stamp Account.last_synced_at. Returns count of newly created trades.
+    and stamp Account.last_synced_at. Returns (count of newly created trades,
+    list of {trade_id, symbol, open_time, close_time} for those new trades —
+    enough for the sync agent to fetch and push chart bars for them).
     """
     account = _upsert_account(db, user_id, account_info)
 
     new_trades_count = 0
+    new_trades_info: list[dict] = []
 
     # Group deals by position ID
     position_deals: dict[int, list[dict]] = {}
@@ -127,10 +130,16 @@ def process_synced_deals(db: Session, user_id: uuid.UUID, account_info: dict, de
         )
         db.add(new_trade)
         new_trades_count += 1
+        new_trades_info.append({
+            "trade_id": new_trade.id,
+            "symbol": symbol_name,
+            "open_time": int(open_time.timestamp()),
+            "close_time": int(close_time.timestamp()),
+        })
 
     account.last_synced_at = datetime.now(timezone.utc)
     db.commit()
-    return new_trades_count
+    return new_trades_count, new_trades_info
 
 
 def sync_mt5_trades(db: Session, user_id: uuid.UUID, from_date: datetime | None = None, to_date: datetime | None = None) -> int:
@@ -195,6 +204,6 @@ def sync_mt5_trades(db: Session, user_id: uuid.UUID, from_date: datetime | None 
         "symbol": d.symbol,
     } for d in deals]
 
-    count = process_synced_deals(db, user_id, account_dict, deal_dicts)
+    count, _new_trades_info = process_synced_deals(db, user_id, account_dict, deal_dicts)
     mt5.shutdown()
     return count

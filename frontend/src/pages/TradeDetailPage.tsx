@@ -26,7 +26,7 @@ export function TradeDetailPage() {
     enabled: Boolean(tradeId),
   });
 
-  const { data: chartData, isLoading: isChartLoading } = useQuery({
+  const { data: chartData, isLoading: isChartLoading, isError: isChartError, error: chartError } = useQuery({
     queryKey: ["trade-chart", tradeId, timeframe],
     queryFn: () => fetchTradeChart(tradeId ?? "", timeframe),
     enabled: Boolean(tradeId),
@@ -149,6 +149,10 @@ export function TradeDetailPage() {
             </div>
             {isChartLoading ? (
               <div className="flex h-[380px] items-center justify-center text-slate-500 text-sm">Loading {timeframe} chart from MT5…</div>
+            ) : isChartError ? (
+              <div className="flex h-[380px] items-center justify-center px-8 text-center text-slate-500 text-sm">
+                {(chartError as any)?.response?.data?.detail ?? "Chart data unavailable."}
+              </div>
             ) : (
               <TradeCandlestickChart
                 bars={chartData?.bars ?? []}

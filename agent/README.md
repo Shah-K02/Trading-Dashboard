@@ -67,8 +67,13 @@ manually one time first before relying on the scheduled task.
 | `--from-days` | Days of trade history to sync each run (default 365) |
 | `--watch MINUTES` | Loop, re-syncing every N minutes, instead of a single run |
 
-## Known limitation
+## Chart data
 
-Chart data (candlestick view on the trade-detail page) also currently
-depends on a local MT5 terminal and does not yet work against a hosted
-backend — that's a separate follow-up, not covered by this agent.
+The agent also pushes candlestick chart bars (all timeframes: M1–D1) for
+every newly-synced trade, via `POST /import/mt5/charts`, so the trade-detail
+chart works against a hosted backend without it needing to reach MT5 itself.
+
+**Known limitation**: this only happens for trades the agent *just* created —
+trades that were already synced before you started using the agent won't have
+cached chart data. There's currently no way to backfill chart data for old
+trades short of re-syncing from a fresh account (a manual DB wipe + re-run).
