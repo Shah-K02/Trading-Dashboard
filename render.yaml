@@ -1,0 +1,25 @@
+# Render Blueprint — deploys the FastAPI backend as a web service.
+# In the Render dashboard: New + -> Blueprint -> select this repo.
+# You'll be prompted to fill in the `sync: false` values (DATABASE_URL,
+# SECRET_KEY, ALLOWED_ORIGINS_STR) yourself — they're never stored here.
+# See DEPLOYMENT.md for the full walkthrough.
+
+services:
+  - type: web
+    name: tradelens-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt && python apply_schema.py && alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS_STR
+        sync: false
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_ENV
+        value: production

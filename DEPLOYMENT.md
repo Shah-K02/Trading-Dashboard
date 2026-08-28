@@ -38,8 +38,19 @@ Make sure your project is pushed to a GitHub repository.
    - **Name**: `tradelens-backend` (or similar)
    - **Root Directory**: `backend`
    - **Environment**: `Python 3`
-   - **Build Command**: `pip install -r requirements.txt && alembic upgrade head`
+   - **Build Command**: `pip install -r requirements.txt && python apply_schema.py && alembic upgrade head`
    - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+   > **Why `apply_schema.py` runs first**: Alembic's migration chain only tracks
+   > changes made *after* the original schema (adding the `users` table, etc.) —
+   > it assumes `accounts`/`trades`/`symbols`/etc. already exist. Those are
+   > defined in `schema.sql`, which `apply_schema.py` applies (idempotently —
+   > safe to run on every deploy). Skipping this step means `alembic upgrade
+   > head` fails on a fresh database with "relation accounts does not exist".
+
+   Alternatively, use the `render.yaml` Blueprint at the repo root — Render
+   auto-detects it when you connect the repo, and it already includes this
+   build command; you'll just be prompted for the `sync: false` env vars below.
 5. Click **Advanced** and add the following **Environment Variables**:
    - `DATABASE_URL`: The PostgreSQL connection string from step 1.
    - `SECRET_KEY`: A strong random string (generate one via `python -c "import secrets; print(secrets.token_hex(32))"`).
@@ -65,7 +76,24 @@ Vercel is the best platform for deploying Vite/React applications.
 5. Open the **Environment Variables** section and add:
    - `VITE_API_URL`: The URL of your deployed backend, appended with `/api` (e.g., `https://tradelens-backend.onrender.com/api`).
 6. Click **Deploy**. Vercel will build and publish your frontend.
+
+   `frontend/vercel.json` (already in the repo) adds a catch-all rewrite to
+   `index.html`, needed because this is a client-side-routed React app —
+   without it, refreshing on a route like `/trades/{id}` 404s.
 7. Once deployed, note the frontend URL. **Important:** Go back to your Backend environment variables on Render and update `ALLOWED_ORIGINS_STR` to include your exact Vercel frontend URL (without a trailing slash).
+
+---
+
+## Known Limitations
+
+- **Journal screenshot uploads are lost on redeploy.** They're saved to local
+  disk (`backend/uploads/`), and Render's free tier filesystem is ephemeral —
+  wiped on every deploy/restart. Fine for evaluating the app; for real use,
+  this needs migrating to persistent storage (a paid Render disk, or S3/R2/
+  Supabase Storage) — not yet implemented.
+- **MT5 trade sync requires the local agent** (see `agent/README.md`) — the
+  hosted backend can't reach MT5 directly. Same applies to trade-detail
+  chart data, which the agent also pushes.
 
 ---
 
