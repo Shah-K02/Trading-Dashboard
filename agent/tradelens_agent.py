@@ -28,6 +28,35 @@ except ImportError:
 CONFIG_PATH = Path.home() / ".tradelens" / "config.json"
 LOG_PATH = Path.home() / ".tradelens" / "agent.log"
 
+# True when running under pythonw.exe with no console attached (sys.stdin is
+# None there). Captured before _setup_logging() reassigns stdout/stderr.
+# getpass.getpass()/input() don't raise when there's nothing to read from —
+# they block forever, which would silently freeze the whole --watch loop
+# (verified: a stuck getpass call here stops even unrelated scheduled/
+# on-demand syncs, since everything runs on one thread). Never call them
+# without checking this flag first.
+HEADLESS = sys.stdin is None
+
+
+def _prompt_password(username: str) -> str:
+    if HEADLESS:
+        raise RuntimeError(
+            f"Cannot prompt for {username}'s password: no console attached "
+            "(running headless via pythonw). Run `python tradelens_agent.py` "
+            "once manually (not pythonw) to log in and cache a fresh token."
+        )
+    return getpass.getpass(f"Password for {username}: ")
+
+
+def _prompt_input(label: str) -> str:
+    if HEADLESS:
+        raise RuntimeError(
+            f"Cannot prompt for {label}: no console attached (running "
+            "headless via pythonw). Run `python tradelens_agent.py` once "
+            "manually first to set this up."
+        )
+    return input(f"{label}: ").strip()
+
 
 def _setup_logging() -> None:
     """Tee stdout/stderr to a log file. Required for running under pythonw.exe
@@ -238,7 +267,7 @@ def run_once(config: dict, from_days: int) -> dict:
     resp = ingest(base_url, config["token"], account_payload, deal_payloads)
     if resp.status_code == 401:
         log("Session expired, logging in again...")
-        password = config.get("password") or getpass.getpass(f"Password for {config['username']}: ")
+        password = config.get("password") or _prompt_password(config["username"])
         config["token"] = login(base_url, config["username"], password)
         save_config(config)
         resp = ingest(base_url, config["token"], account_payload, deal_payloads)
@@ -273,11 +302,11 @@ def main():
         config["password"] = args.password
 
     if "base_url" not in config:
-        config["base_url"] = input("TradeLens API base URL: ").strip()
+        config["base_url"] = _prompt_input("TradeLens API base URL")
     if "username" not in config:
-        config["username"] = input("TradeLens username: ").strip()
+        config["username"] = _prompt_input("TradeLens username")
     if "token" not in config:
-        password = config.get("password") or getpass.getpass(f"Password for {config['username']}: ")
+        password = config.get("password") or _prompt_password(config["username"])
         config["token"] = login(config["base_url"], config["username"], password)
 
     save_config(config)

@@ -84,9 +84,14 @@ Because `pythonw.exe` has no console, the agent always writes its status
 `%USERPROFILE%\.tradelens\agent.log`, in addition to the console when one is
 attached. Check this file if syncs seem to have stopped — the most likely
 cause is the cached login token expiring after 7 days when the process has
-been running headless the whole time (it can't prompt for a password with no
-console attached); if you see repeated `Sync failed: Login failed (401)`
-lines, just run `python tradelens_agent.py` once manually to re-authenticate.
+been running headless the whole time. It can't prompt for a password with no
+console attached, and — this was tested directly, since a blocking prompt
+with nothing to read from would otherwise hang the *entire* watch loop
+forever, silently, with no further syncs at all — it now detects that case
+and fails fast instead of hanging: you'll see `Sync failed: Cannot prompt for
+<username>'s password: no console attached...` in the log, repeating every
+cycle. Just run `python tradelens_agent.py` once manually (not `pythonw`) to
+re-authenticate.
 
 ## Triggering a sync from the dashboard
 
