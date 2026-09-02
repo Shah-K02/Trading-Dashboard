@@ -70,3 +70,8 @@ class ChartIngestRequest(BaseModel):
 class ChartIngestResponse(BaseModel):
     message: str
     stored_count: int
+
+
+class SyncStatusResponse(BaseModel):
+    requested: bool
+    requested_at: datetime | None = None

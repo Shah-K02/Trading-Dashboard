@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchAnalyticsSummary, fetchEquityCurve, fetchMonthlyStats, fetchSymbolBreakdown, importMT5Trades } from "../lib/api";
+import { fetchAnalyticsSummary, fetchEquityCurve, fetchMonthlyStats, fetchSymbolBreakdown, fetchMt5SyncStatus, importMT5Trades, requestMt5Sync } from "../lib/api";
 import { formatCurrency, formatPercent, formatRelativeTime } from "../lib/format";
 import { SummaryCard } from "../components/dashboard/SummaryCard";
 import { MonthlyStatsTable } from "../components/dashboard/MonthlyStatsTable";
@@ -35,20 +35,69 @@ export function DashboardPage() {
   });
 
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const refreshAfterSync = () => {
+    loadActiveAccount();
+    queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    queryClient.invalidateQueries({ queryKey: ["analytics-summary", accountId] });
+    queryClient.invalidateQueries({ queryKey: ["analytics-equity", accountId] });
+    queryClient.invalidateQueries({ queryKey: ["analytics-monthly", accountId] });
+    queryClient.invalidateQueries({ queryKey: ["analytics-symbols", accountId] });
+    queryClient.invalidateQueries({ queryKey: ["trades"] });
+  };
+
+  const waitForAgentSync = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    let attempts = 0;
+    pollRef.current = setInterval(async () => {
+      attempts += 1;
+      try {
+        const status = await fetchMt5SyncStatus();
+        if (!status.requested) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          setSyncMessage("Synced by your local agent.");
+          refreshAfterSync();
+          return;
+        }
+      } catch {
+        // transient — keep polling until the attempt cap is hit
+      }
+      if (attempts >= 24) { // ~2 minutes at 5s
+        if (pollRef.current) clearInterval(pollRef.current);
+        setSyncMessage("Still waiting on your local agent — it'll sync next time it checks in.");
+      }
+    }, 5000);
+  };
 
   const syncMutation = useMutation({
-    mutationFn: importMT5Trades,
-    onSuccess: (data) => {
-      setSyncMessage(`Synced — ${data?.new_trades_count ?? 0} new trade(s).`);
-      // Reload the active account (creates it if it didn't exist yet)
-      loadActiveAccount();
-      // Invalidate all account-related queries so the switcher dropdown refreshes
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      queryClient.invalidateQueries({ queryKey: ["analytics-summary", accountId] });
-      queryClient.invalidateQueries({ queryKey: ["analytics-equity", accountId] });
-      queryClient.invalidateQueries({ queryKey: ["analytics-monthly", accountId] });
-      queryClient.invalidateQueries({ queryKey: ["analytics-symbols", accountId] });
-      queryClient.invalidateQueries({ queryKey: ["trades"] });
+    mutationFn: async () => {
+      try {
+        return await importMT5Trades();
+      } catch (error: any) {
+        if (error?.response?.status === 503) {
+          // No local MT5 on this server (hosted deployment) — fall back to
+          // asking the user's local sync agent to pick this up.
+          await requestMt5Sync();
+          return { requested: true };
+        }
+        throw error;
+      }
+    },
+    onSuccess: (data: any) => {
+      if (data?.requested) {
+        setSyncMessage("Sync requested — waiting for your local agent (checks in within ~20s)...");
+        waitForAgentSync();
+      } else {
+        setSyncMessage(`Synced — ${data?.new_trades_count ?? 0} new trade(s).`);
+        refreshAfterSync();
+      }
     },
     onError: (error: any) => {
       const detail = error?.response?.data?.detail ?? "MT5 sync failed. Make sure MT5 is open and you are logged in.";
@@ -83,9 +132,10 @@ export function DashboardPage() {
             <details className="relative">
               <summary className="list-none cursor-pointer text-slate-400 hover:text-slate-200 text-base leading-none select-none">ⓘ</summary>
               <div className="absolute right-0 z-10 mt-2 w-64 rounded-lg border border-slate-700 bg-slate-800 p-3 text-xs text-slate-300 shadow-xl">
-                Running TradeLens locally with MT5 on this PC? Click "Sync MT5" above.
-                Using the hosted version? Download and run the TradeLens Sync Agent on
-                the PC where your MT5 terminal lives — see <code>agent/README.md</code> in the repo.
+                Running TradeLens locally with MT5 on this PC? Click "Sync MT5" above for an instant sync.
+                Using the hosted version? Make sure the TradeLens Sync Agent is running on the PC where
+                your MT5 terminal lives (see <code>agent/README.md</code>), then click "Sync MT5" —
+                it'll ask the agent to sync within ~20 seconds.
               </div>
             </details>
           </div>

@@ -129,6 +129,16 @@ export const importMT5Trades = async () => {
   return data;
 };
 
+export const requestMt5Sync = async () => {
+  const { data } = await api.post('/import/mt5/request-sync');
+  return data;
+};
+
+export const fetchMt5SyncStatus = async () => {
+  const { data } = await api.get('/import/mt5/sync-status');
+  return data as { requested: boolean; requested_at: string | null };
+};
+
 export interface TradeFilters {
   symbol?: string | null;
   side?: string | null;

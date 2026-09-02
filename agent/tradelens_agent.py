@@ -111,6 +111,23 @@ def fetch_deals(from_days: int):
     return account_payload, deal_payloads
 
 
+def check_sync_requested(base_url: str, token: str) -> bool:
+    """Polls the request-sync flag the hosted dashboard's "Sync MT5" button
+    sets. Best-effort: network hiccups here just mean we wait for the next
+    scheduled sync instead of crashing the watch loop."""
+    try:
+        resp = requests.get(
+            f"{base_url}/import/mt5/sync-status",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return False
+        return bool(resp.json().get("requested"))
+    except requests.RequestException:
+        return False
+
+
 def ingest(base_url: str, token: str, account_payload: dict, deal_payloads: list) -> requests.Response:
     return requests.post(
         f"{base_url}/import/mt5/ingest",
@@ -203,11 +220,14 @@ def main():
     parser.add_argument("--base-url", help="TradeLens API base URL, e.g. https://your-backend.onrender.com/api")
     parser.add_argument("--username", help="TradeLens username")
     parser.add_argument("--password", help="TradeLens password (omit to be prompted; not stored on disk)")
-    parser.add_argument("--from-days", type=int, default=365, help="How many days of history to sync (default 365)")
+    parser.add_argument("--from-days", type=int, default=365, help="Days of history for the very first sync (default 365)")
+    parser.add_argument("--resync-from-days", type=int, default=7, help="Days of history for every sync after the first (default 7) — narrower window since older trades are already synced; keeps repeated syncs (--watch, or a Task Scheduler run every N minutes) cheap")
     parser.add_argument("--watch", type=int, metavar="MINUTES", help="Re-sync every N minutes instead of running once")
+    parser.add_argument("--poll-seconds", type=int, default=20, help="In --watch mode, how often to check for an on-demand sync request from the dashboard's Sync button (default 20)")
     args = parser.parse_args()
 
     config = load_config()
+    had_token_before = "token" in config  # i.e. this isn't the very first time this account has ever synced
     if args.base_url:
         config["base_url"] = args.base_url
     if args.username:
@@ -225,20 +245,35 @@ def main():
 
     save_config(config)
 
-    def sync_once():
+    def sync_once(from_days: int):
         try:
-            result = run_once(config, args.from_days)
+            result = run_once(config, from_days)
             print(f"Synced. New trades: {result['new_trades_count']}. Last synced: {result['last_synced_at']}")
         except Exception as e:
             print(f"Sync failed: {e}", file=sys.stderr)
 
     if args.watch:
-        print(f"Watching — syncing every {args.watch} minute(s). Press Ctrl+C to stop.")
+        print(f"Watching — syncing every {args.watch} minute(s), checking for on-demand "
+              f"sync requests every {args.poll_seconds}s. Press Ctrl+C to stop.")
+        first_tick = True
+        last_sync_time = 0.0
         while True:
-            sync_once()
-            time.sleep(args.watch * 60)
+            now = time.time()
+            due_for_scheduled_sync = first_tick or (now - last_sync_time >= args.watch * 60)
+            requested = False if due_for_scheduled_sync else check_sync_requested(config["base_url"], config["token"])
+
+            if due_for_scheduled_sync or requested:
+                if requested:
+                    print("On-demand sync requested from the dashboard — syncing now.")
+                use_full_history = first_tick and not had_token_before
+                sync_once(args.from_days if use_full_history else args.resync_from_days)
+                last_sync_time = time.time()
+                first_tick = False
+
+            time.sleep(args.poll_seconds)
     else:
-        sync_once()
+        use_full_history = not had_token_before
+        sync_once(args.from_days if use_full_history else args.resync_from_days)
 
 
 if __name__ == "__main__":

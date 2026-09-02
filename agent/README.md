@@ -42,20 +42,43 @@ Or keep it running and re-sync automatically every 15 minutes:
 python tradelens_agent.py --watch 15
 ```
 
+In `--watch` mode the agent also checks every 20 seconds (`--poll-seconds`)
+for an on-demand sync request from the dashboard's "Sync MT5" button, so
+clicking it on a hosted deployment triggers a sync almost immediately
+instead of waiting for the next scheduled interval — see "Triggering a sync
+from the dashboard" below.
+
 ## Running automatically via Windows Task Scheduler
 
-To sync periodically without keeping a terminal window open:
+To sync continuously without keeping a terminal window open:
 
 1. Open **Task Scheduler** → **Create Task**.
-2. **Triggers**: "At log on", and set it to repeat every 15 minutes
-   indefinitely.
+2. **Triggers**: "At log on" only (no repetition — the agent repeats itself
+   via `--watch`).
 3. **Actions**: Start a program —
    - Program: `C:\path\to\agent\venv\Scripts\python.exe`
-   - Arguments: `tradelens_agent.py`
+   - Arguments: `tradelens_agent.py --watch 15`
    - Start in: `C:\path\to\agent`
 
 Since the agent needs to log in once interactively to cache a token, run it
 manually one time first before relying on the scheduled task.
+
+> If your task is currently set up to run `tradelens_agent.py` (one-shot,
+> no `--watch`) on a 15-minute repeating trigger, it still works, but the
+> dashboard's "Sync MT5" button won't be picked up until the next scheduled
+> run — only a continuously-running `--watch` process polls for on-demand
+> requests. Switch the task's action to `--watch 15` and drop the repeating
+> trigger to get near-instant syncs from the button.
+
+## Triggering a sync from the dashboard
+
+On a hosted deployment, clicking "Sync MT5" can't sync directly (the server
+has no MT5 terminal to talk to). Instead it flags a sync request; the agent
+picks it up on its next poll (every 20s while running with `--watch`) and
+syncs immediately, using the narrower `--resync-from-days` window. The
+dashboard polls for completion and refreshes automatically once the agent
+finishes. If the agent isn't running, the request just sits there until it
+next starts up or its next scheduled sync happens anyway.
 
 ## Options
 
@@ -64,8 +87,17 @@ manually one time first before relying on the scheduled task.
 | `--base-url` | TradeLens API base URL |
 | `--username` | TradeLens username |
 | `--password` | TradeLens password (omit to be prompted; never stored on disk) |
-| `--from-days` | Days of trade history to sync each run (default 365) |
+| `--from-days` | Days of history for the very first sync (default 365) |
+| `--resync-from-days` | Days of history for every sync after the first (default 7) |
 | `--watch MINUTES` | Loop, re-syncing every N minutes, instead of a single run |
+
+The narrower `--resync-from-days` window applies automatically to any sync
+after the first one this account has ever done (detected by whether a login
+token was already cached) — so a fresh Task Scheduler-triggered run every 15
+minutes, or the 2nd+ tick of `--watch`, only asks MT5 for the last 7 days of
+deals instead of re-fetching and re-sending the full year every time. Older
+trades are already synced and get skipped server-side regardless, but a
+smaller window keeps each sync's MT5 call and network payload small.
 
 ## Chart data
 

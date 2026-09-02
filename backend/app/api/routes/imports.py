@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
@@ -8,7 +9,7 @@ from app.models.account import Account
 from app.models.trade import Trade
 from app.models.trade_chart_cache import TradeChartCache
 from app.models.user import User
-from app.schemas.sync import ChartIngestRequest, ChartIngestResponse, IngestRequest, IngestResponse
+from app.schemas.sync import ChartIngestRequest, ChartIngestResponse, IngestRequest, IngestResponse, SyncStatusResponse
 from app.services.mt5_service import process_synced_deals, sync_mt5_trades
 import logging
 
@@ -25,9 +26,36 @@ def import_mt5_trades(
     try:
         new_trades = sync_mt5_trades(db=db, user_id=current_user.id)
         return {"message": "MT5 import successful", "new_trades_count": new_trades}
+    except RuntimeError as e:
+        # MetaTrader5 package isn't installed on this server (i.e. this is a
+        # hosted deployment) — the frontend falls back to request-sync.
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"MT5 Import Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/mt5/request-sync", response_model=SyncStatusResponse)
+def request_mt5_sync(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Flags that the user wants a sync soon. Picked up by their local sync
+    agent (see agent/), which polls GET /mt5/sync-status while running."""
+    current_user.sync_requested_at = datetime.now(timezone.utc)
+    db.commit()
+    return SyncStatusResponse(requested=True, requested_at=current_user.sync_requested_at)
+
+
+@router.get("/mt5/sync-status", response_model=SyncStatusResponse)
+def get_mt5_sync_status(
+    current_user: User = Depends(get_current_user),
+):
+    """Polled by the local sync agent to check for a pending request-sync."""
+    return SyncStatusResponse(
+        requested=current_user.sync_requested_at is not None,
+        requested_at=current_user.sync_requested_at,
+    )
 
 
 @router.post("/mt5/ingest", response_model=IngestResponse)
@@ -45,6 +73,10 @@ def ingest_mt5_trades(
         account = db.query(Account).filter(
             Account.account_number == str(account_dict["login"])
         ).first()
+        # A completed sync (scheduled or on-demand) satisfies any pending request.
+        if current_user.sync_requested_at is not None:
+            current_user.sync_requested_at = None
+            db.commit()
         return IngestResponse(
             message="MT5 ingest successful",
             new_trades_count=new_trades_count,
