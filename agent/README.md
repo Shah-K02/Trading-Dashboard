@@ -56,19 +56,37 @@ To sync continuously without keeping a terminal window open:
 2. **Triggers**: "At log on" only (no repetition — the agent repeats itself
    via `--watch`).
 3. **Actions**: Start a program —
-   - Program: `C:\path\to\agent\venv\Scripts\python.exe`
+   - Program: `C:\path\to\agent\venv\Scripts\pythonw.exe`
    - Arguments: `tradelens_agent.py --watch 15`
    - Start in: `C:\path\to\agent`
+4. **Settings**: set **"Stop the task if it runs longer than"** to
+   **disabled/unchecked** (Task Scheduler defaults this to 3 days, and older
+   defaults to as little as 5 minutes — either will silently kill a
+   long-running `--watch` process).
 
 Since the agent needs to log in once interactively to cache a token, run it
-manually one time first before relying on the scheduled task.
+manually one time first (with `python.exe`, not `pythonw.exe`, so you can see
+the prompts) before relying on the scheduled task.
 
-> If your task is currently set up to run `tradelens_agent.py` (one-shot,
-> no `--watch`) on a 15-minute repeating trigger, it still works, but the
-> dashboard's "Sync MT5" button won't be picked up until the next scheduled
-> run — only a continuously-running `--watch` process polls for on-demand
-> requests. Switch the task's action to `--watch 15` and drop the repeating
-> trigger to get near-instant syncs from the button.
+**Use `pythonw.exe`, not `python.exe`, for the scheduled task.** `python.exe`
+opens a visible console window — closing it (even by accident) kills the
+agent, since a webpage can never restart a program on your machine for you
+(browsers block that for security reasons). `pythonw.exe` runs the exact same
+script with no window at all, so there's nothing to accidentally close; it
+just keeps running in the background until you log off or explicitly stop
+the task. Since it has no console, all output goes to a log file instead —
+see below.
+
+## Logs
+
+Because `pythonw.exe` has no console, the agent always writes its status
+(sync results, errors, on-demand sync requests) to
+`%USERPROFILE%\.tradelens\agent.log`, in addition to the console when one is
+attached. Check this file if syncs seem to have stopped — the most likely
+cause is the cached login token expiring after 7 days when the process has
+been running headless the whole time (it can't prompt for a password with no
+console attached); if you see repeated `Sync failed: Login failed (401)`
+lines, just run `python tradelens_agent.py` once manually to re-authenticate.
 
 ## Triggering a sync from the dashboard
 

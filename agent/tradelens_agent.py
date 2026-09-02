@@ -15,6 +15,7 @@ import getpass
 import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -25,6 +26,41 @@ except ImportError:
     mt5 = None
 
 CONFIG_PATH = Path.home() / ".tradelens" / "config.json"
+LOG_PATH = Path.home() / ".tradelens" / "agent.log"
+
+
+def _setup_logging() -> None:
+    """Tee stdout/stderr to a log file. Required for running under pythonw.exe
+    (no console window, e.g. via Task Scheduler) — there sys.stdout/sys.stderr
+    are None, and a bare print() would crash the process."""
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    log_file = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+
+    class _Tee:
+        def __init__(self, *streams):
+            self.streams = [s for s in streams if s is not None]
+
+        def write(self, data):
+            for s in self.streams:
+                try:
+                    s.write(data)
+                except Exception:
+                    pass
+
+        def flush(self):
+            for s in self.streams:
+                try:
+                    s.flush()
+                except Exception:
+                    pass
+
+    sys.stdout = _Tee(sys.stdout, log_file)
+    sys.stderr = _Tee(sys.stderr, log_file)
+
+
+def log(msg: str, err: bool = False) -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{ts}] {msg}", file=sys.stderr if err else sys.stdout)
 
 # Mirrors the backend's own per-timeframe lookback window
 # (backend/app/api/routes/trades.py _WINDOW) so cached chart bars cover the
@@ -201,7 +237,7 @@ def run_once(config: dict, from_days: int) -> dict:
 
     resp = ingest(base_url, config["token"], account_payload, deal_payloads)
     if resp.status_code == 401:
-        print("Session expired, logging in again...")
+        log("Session expired, logging in again...")
         password = config.get("password") or getpass.getpass(f"Password for {config['username']}: ")
         config["token"] = login(base_url, config["username"], password)
         save_config(config)
@@ -216,6 +252,7 @@ def run_once(config: dict, from_days: int) -> dict:
 
 
 def main():
+    _setup_logging()
     parser = argparse.ArgumentParser(description="TradeLens local MT5 sync agent")
     parser.add_argument("--base-url", help="TradeLens API base URL, e.g. https://your-backend.onrender.com/api")
     parser.add_argument("--username", help="TradeLens username")
@@ -248,13 +285,13 @@ def main():
     def sync_once(from_days: int):
         try:
             result = run_once(config, from_days)
-            print(f"Synced. New trades: {result['new_trades_count']}. Last synced: {result['last_synced_at']}")
+            log(f"Synced. New trades: {result['new_trades_count']}. Last synced: {result['last_synced_at']}")
         except Exception as e:
-            print(f"Sync failed: {e}", file=sys.stderr)
+            log(f"Sync failed: {e}", err=True)
 
     if args.watch:
-        print(f"Watching — syncing every {args.watch} minute(s), checking for on-demand "
-              f"sync requests every {args.poll_seconds}s. Press Ctrl+C to stop.")
+        log(f"Watching — syncing every {args.watch} minute(s), checking for on-demand "
+            f"sync requests every {args.poll_seconds}s. Logging to {LOG_PATH}.")
         first_tick = True
         last_sync_time = 0.0
         while True:
@@ -264,7 +301,7 @@ def main():
 
             if due_for_scheduled_sync or requested:
                 if requested:
-                    print("On-demand sync requested from the dashboard — syncing now.")
+                    log("On-demand sync requested from the dashboard — syncing now.")
                 use_full_history = first_tick and not had_token_before
                 sync_once(args.from_days if use_full_history else args.resync_from_days)
                 last_sync_time = time.time()
